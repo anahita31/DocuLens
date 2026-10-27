@@ -4,12 +4,14 @@ main.py
 FastAPI entry point for the AICTE document compliance system (SIH2621).
 
 Endpoints:
-    POST /api/upload-and-verify               upload a PDF and run the full pipeline
-    POST /api/query-aph-rule                  ask the APH rule knowledge base
-    GET  /api/application/{application_code}  application, documents and audit trail
-    GET  /health                              liveness check
+    POST /api/upload-and-verify              upload a PDF and run the full pipeline
+    POST /api/query-aph-rule                     ask the APH rule knowledge base
+    GET  /api/application/{application_code}   application, documents and audit trail
+    GET  /api/applications                     fetch all applications from the database
+    POST /api/register                         register institution account
+    GET  /health                               liveness check
 
-Run:  uvicorn main:app --reload
+Run:    uvicorn main:app --reload
 
 NOTE: there is no authentication here. Put it behind your auth layer
 (API key / OAuth / reverse proxy) before exposing it beyond local testing.
@@ -26,6 +28,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -77,14 +80,23 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS middleware configuration to allow frontend requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change to ["http://localhost:5173"] for stricter security if desired
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # --------------------------------------------------------------------------- #
 # Schemas
 # --------------------------------------------------------------------------- #
 class FlagOut(BaseModel):
-    source: str                      # forensics | cross_check | duplicate | ocr
+    source: str                     # forensics | cross_check | duplicate | ocr
     code: str
-    severity: str                    # HIGH | MEDIUM | LOW
+    severity: str                   # HIGH | MEDIUM | LOW
     message: str
     field: Optional[str] = None
     declared: Any = None
@@ -390,3 +402,34 @@ def get_application(application_code: str, db: Session = Depends(get_db)) -> App
     detail = ApplicationDetail.model_validate(application)
     detail.audit_logs = [AuditLogOut.model_validate(entry) for entry in logs]
     return detail
+
+
+@app.get("/api/applications", response_model=list[ApplicationDetail])
+def list_applications(db: Session = Depends(get_db)) -> list[ApplicationDetail]:
+    """Fetch all real applications from the database with their documents and audit logs."""
+    applications = db.query(InstitutionApplication).order_by(InstitutionApplication.created_at.desc()).all()
+    
+    result = []
+    for app_item in applications:
+        logs = (
+            db.query(AuditLog)
+            .filter(AuditLog.application_code == app_item.application_code)
+            .order_by(AuditLog.timestamp.asc(), AuditLog.id.asc())
+            .all()
+        )
+        detail = ApplicationDetail.model_validate(app_item)
+        detail.audit_logs = [AuditLogOut.model_validate(entry) for entry in logs]
+        result.append(detail)
+        
+    return result
+
+
+class InstitutionRegister(BaseModel):
+    institution_name: str
+    account_type: str
+    password: str
+
+@app.post('/api/register')
+def register_institution(data: InstitutionRegister):
+    print(f'Received registration for: {data.institution_name} ({data.account_type})')
+    return {'status': 'success', 'message': 'Account registered successfully!', 'institution': data.institution_name}
