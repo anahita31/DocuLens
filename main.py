@@ -43,11 +43,11 @@ from database import (
     init_db,
     log_action,
 )
-from services.cross_checker import verify_consistency
-from services.forensics import compute_sha256, inspect_pdf_metadata
-from services.llm_rag_engine import APHRegulatoryRAG
-from services.ocr_engine import extract_text_from_pdf, parse_document_fields
-from services.risk_calculator import FLAG_THRESHOLD, compute_application_risk
+from Backend.cross_checker import verify_consistency
+from Backend.forensics import compute_sha256, inspect_pdf_metadata
+from Backend.llm_rag_engine import APHRegulatoryRAG
+from Backend.ocr_engine import extract_text_from_pdf, parse_document_fields
+from Backend.risk_calculator import FLAG_THRESHOLD, compute_application_risk
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("aicte.api")
