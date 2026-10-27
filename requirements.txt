@@ -4,7 +4,7 @@ sqlalchemy>=2.0
 pypdf>=4.0
 rapidfuzz>=3.0
 pydantic>=2.0
-flask=
+flask==3.0.0
 
 # Required by FastAPI for file uploads and form fields (UploadFile / Form).
 python-multipart>=0.0.9
