@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import "./DocumentIntake.css";
+import "./documentIntake.css";
 
 const requiredDocuments = [
   {
