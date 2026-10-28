@@ -2,6 +2,12 @@
 import { useState } from "react";
 import "./LoginPage.css";
 
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+
+const LOGIN_ENDPOINT = import.meta.env.VITE_LOGIN_ENDPOINT || "";
+
 function LoginPage({
   onBack,
   onSignUp,
@@ -13,16 +19,16 @@ function LoginPage({
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
-  const [demoMode, setDemoMode] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (event) => {
+  async function handleSubmit(event) {
     event.preventDefault();
     setError("");
 
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = email.trim();
 
     if (!normalizedEmail || !password) {
-      setError("Please enter both your email address and password.");
+      setError("Please enter your email and password.");
       return;
     }
 
@@ -31,73 +37,125 @@ function LoginPage({
       return;
     }
 
-    if (!demoMode) {
+    if (!LOGIN_ENDPOINT) {
       setError(
-        "Authentication is not connected yet. Enable demo mode to preview the dashboard."
+        "Login API is not configured. Set VITE_LOGIN_ENDPOINT to the backend team's login route."
       );
       return;
     }
 
-    const reviewerAccount =
-      normalizedEmail.startsWith("reviewer@") ||
-      normalizedEmail.startsWith("admin@");
+    setIsSubmitting(true);
 
-    const userDetails = {
-      name: reviewerAccount
-        ? "Demo Reviewer"
-        : normalizedEmail
-            .split("@")[0]
-            .split(/[._-]/)
-            .map(
-              (part) =>
-                part.charAt(0).toUpperCase() + part.slice(1)
-            )
-            .join(" "),
-      email: normalizedEmail,
-      role: reviewerAccount ? "reviewer" : "institution",
-      rememberMe,
-      demo: true,
-    };
-
-    if (typeof onLoginSuccess === "function") {
-      onLoginSuccess(userDetails);
-    } else {
-      setError(
-        "The login page is not connected to the app navigation yet."
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/${LOGIN_ENDPOINT.replace(/^\/+/, "")}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            email: normalizedEmail,
+            password,
+          }),
+        }
       );
+
+      const responseText = await response.text();
+      let data = null;
+
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          data = null;
+        }
+      }
+
+      if (!response.ok) {
+        const message =
+          data && typeof data === "object"
+            ? data.detail ||
+              data.message ||
+              data.error ||
+              "Login failed. Please check your credentials."
+            : "Login failed. Please check your credentials.";
+
+        throw new Error(message);
+      }
+
+      if (!data || typeof data !== "object") {
+        throw new Error(
+          "The server returned an invalid login response."
+        );
+      }
+
+      // Accept common response shapes, but never infer a role from email.
+      const user = data.user || data;
+
+      const authenticated =
+        data.authenticated === true ||
+        data.success === true ||
+        Boolean(data.access_token || data.token) ||
+        response.ok;
+
+      if (!authenticated) {
+        throw new Error("The server did not confirm authentication.");
+      }
+
+      const role = user.role || user.account_type;
+
+      if (!role) {
+        throw new Error(
+          "Login response is missing the user's role. Please contact the backend team."
+        );
+      }
+
+      // Do not store passwords or invent an authenticated user.
+      // The backend must implement its agreed cookie/token strategy.
+      onLoginSuccess?.({
+        id: user.id ?? user.user_id ?? null,
+        name: user.full_name || user.name || "",
+        email: user.email || normalizedEmail,
+        institution:
+          user.institution_name || user.institution || "",
+        role,
+        token: data.access_token || data.token || null,
+        rememberMe,
+      });
+    } catch (err) {
+      setError(
+        err instanceof TypeError
+          ? "Cannot reach the login service. Check the API URL and server availability."
+          : err.message || "Unable to log in. Please try again."
+      );
+    } finally {
+      setIsSubmitting(false);
     }
-  };
+  }
 
   return (
     <main className="login-page">
       <section className="login-card">
         <button
-          type="button"
           className="login-back-button"
+          type="button"
           onClick={onBack}
         >
-          <span aria-hidden="true">←</span> Back
+          ← Back
         </button>
 
         <div className="login-brand">
           <div className="login-brand-mark" aria-hidden="true">
-            <span>D</span>
+            D
           </div>
-
-          <div>
-            <h1>DocuLens</h1>
-            <p>Approval Intelligence</p>
-          </div>
+          <span>DocuLens</span>
         </div>
 
-        <div className="login-heading">
-          <p className="login-eyebrow">WELCOME BACK</p>
-          <h2>Sign in to your workspace</h2>
-          <p>
-            Access your applications, documents, and preliminary
-            validation updates.
-          </p>
-        </div>
+        <h1 className="login-heading">Welcome back</h1>
+        <p>Sign in to your DocuLens account.</p>
 
         {error && (
           <div className="login-error" role="alert">
@@ -110,13 +168,14 @@ function LoginPage({
             <label htmlFor="login-email">Email address</label>
             <input
               id="login-email"
-              type="email"
               name="email"
-              autoComplete="email"
+              type="email"
+              autoComplete="username"
               placeholder="you@institution.edu"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               required
+              disabled={isSubmitting}
             />
           </div>
 
@@ -124,38 +183,41 @@ function LoginPage({
             <div className="login-password-label">
               <label htmlFor="login-password">Password</label>
 
-              <button
-                type="button"
-                className="login-text-button"
-                onClick={onForgotPassword}
-              >
-                Forgot password?
-              </button>
+              {onForgotPassword && (
+                <button
+                  className="login-text-button"
+                  type="button"
+                  onClick={onForgotPassword}
+                  disabled={isSubmitting}
+                >
+                  Forgot password?
+                </button>
+              )}
             </div>
 
             <div className="login-password-wrapper">
               <input
                 id="login-password"
-                type={showPassword ? "text" : "password"}
                 name="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 placeholder="Enter your password"
                 value={password}
-                onChange={(event) =>
-                  setPassword(event.target.value)
-                }
+                onChange={(event) => setPassword(event.target.value)}
                 required
+                disabled={isSubmitting}
               />
 
               <button
-                type="button"
                 className="login-show-password"
+                type="button"
                 onClick={() =>
-                  setShowPassword((previous) => !previous)
+                  setShowPassword((current) => !current)
                 }
                 aria-label={
                   showPassword ? "Hide password" : "Show password"
                 }
+                disabled={isSubmitting}
               >
                 {showPassword ? "Hide" : "Show"}
               </button>
@@ -169,65 +231,37 @@ function LoginPage({
               onChange={(event) =>
                 setRememberMe(event.target.checked)
               }
+              disabled={isSubmitting}
             />
-            <span>Remember me on this device</span>
+            <span>Remember me</span>
           </label>
 
-          <div className="login-demo-notice">
-            <label className="login-demo-toggle">
-              <input
-                type="checkbox"
-                checked={demoMode}
-                onChange={(event) => {
-                  setDemoMode(event.target.checked);
-                  setError("");
-                }}
-              />
-              <span>
-                <strong>Enable demo mode</strong>
-                <small>
-                  Preview the interface without real authentication.
-                </small>
-              </span>
-            </label>
-
-            {demoMode && (
-              <p className="login-demo-warning">
-                Demo only. Emails beginning with reviewer@ or admin@
-                open the reviewer preview. Other emails open the
-                institution preview. These prefixes do not grant real
-                permissions.
-              </p>
-            )}
-          </div>
-
           <button
-            type="submit"
             className="login-submit-button"
+            type="submit"
+            disabled={isSubmitting}
           >
-            Sign in <span aria-hidden="true">→</span>
+            {isSubmitting ? "Signing in..." : "Sign in"}
           </button>
         </form>
 
         <div className="login-divider">
-          <span>NEW TO DOCULENS?</span>
+          <span>New to DocuLens?</span>
         </div>
 
-        <p className="login-signup-prompt">
-          Need an account?{" "}
+        <div className="login-signup-prompt">
           <button
             type="button"
             className="login-text-button"
             onClick={onSignUp}
+            disabled={isSubmitting}
           >
-            Request access
+            Create an account
           </button>
-        </p>
+        </div>
 
         <p className="login-security-note">
-          <span aria-hidden="true">◆</span> Preliminary validation
-          assistance only. Final regulatory decisions remain with
-          authorized officials.
+          Your account access is managed by DocuLens authentication.
         </p>
       </section>
     </main>

@@ -17,7 +17,7 @@ import Reports from "./Reports.jsx";
 
 function App() {
   const [currentPage, setCurrentPage] = useState("landing");
-  const [previousPage, setPreviousPage] = useState("landing");
+  const [pageHistory, setPageHistory] = useState([]);
   const [activePage, setActivePage] = useState("Overview");
   const [notice, setNotice] = useState("");
   const [selectedApplication, setSelectedApplication] = useState(null);
@@ -25,7 +25,7 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
 
   function navigate(page) {
-    setPreviousPage(currentPage);
+    setPageHistory((history) => [...history, currentPage]);
     setCurrentPage(page);
     setNotice("");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -38,7 +38,13 @@ function App() {
   }
 
   function goBack() {
-    setCurrentPage(previousPage);
+    if (pageHistory.length === 0) {
+      setCurrentPage("institution-dashboard");
+    } else {
+      setCurrentPage(pageHistory[pageHistory.length - 1]);
+      setPageHistory((history) => history.slice(0, -1));
+    }
+
     setNotice("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -59,6 +65,7 @@ function App() {
       role,
     });
 
+    setPageHistory([]);
     setCurrentPage(
       role === "admin"
         ? "admin-dashboard"
@@ -78,6 +85,7 @@ function App() {
       role: "institution",
     });
 
+    setPageHistory([]);
     setCurrentPage("institution-dashboard");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -85,6 +93,7 @@ function App() {
   function handleLogout() {
     setCurrentUser(null);
     setSelectedApplication(null);
+    setPageHistory([]);
     setCurrentPage("landing");
     setNotice("");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -92,7 +101,7 @@ function App() {
 
   function openReview(application) {
     setSelectedApplication(application);
-    setPreviousPage(currentPage);
+    setPageHistory((history) => [...history, currentPage]);
     setCurrentPage("verification");
     setNotice("");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -681,6 +690,9 @@ function App() {
 
     case "activity-log":
       return <ActivityLog onBack={goBack} />;
+
+    case "reports":
+      return <Reports onBack={goBack} />;
 
     case "forgot-password":
       return (

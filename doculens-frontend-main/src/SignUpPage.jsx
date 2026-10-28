@@ -1,5 +1,10 @@
+
 import { useState } from "react";
 import "./SignUpPage.css";
+
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
 
 function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
   const [fullName, setFullName] = useState("");
@@ -13,15 +18,21 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
 
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
+    setSuccessMessage("");
+
+    const normalizedName = fullName.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedInstitution = institution.trim();
 
     if (
-      !fullName.trim() ||
-      !email.trim() ||
-      !institution.trim() ||
+      !normalizedName ||
+      !normalizedEmail ||
+      !normalizedInstitution ||
       !password ||
       !confirmPassword
     ) {
@@ -29,7 +40,7 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
       return;
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       setError("Please enter a valid institutional email address.");
       return;
     }
@@ -52,32 +63,66 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/register", {
+      const response = await fetch(`${API_BASE_URL}/api/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Accept: "application/json",
         },
+        // Keep the request fields aligned with the existing
+        // registration request used by this project.
         body: JSON.stringify({
-          institution_name: institution,
+          institution_name: normalizedInstitution,
           account_type: accountType,
-          password: password,
+          password,
         }),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data = {};
 
-      if (response.ok) {
-        if (onSignUpSuccess) {
-          onSignUpSuccess(data);
-        } else {
-          alert("Account registered successfully!");
-          if (onLogin) onLogin();
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          data = { detail: responseText };
         }
-      } else {
-        setError(data.detail || "Registration failed. Please try again.");
+      }
+
+      if (!response.ok) {
+        const detail = data.detail || data.message;
+
+        throw new Error(
+          typeof detail === "string"
+            ? detail
+            : `Registration failed (HTTP ${response.status}). Please check your details and try again.`
+        );
+      }
+
+      setSuccessMessage(
+        "Your registration request was submitted successfully."
+      );
+
+      // Pass the response to the existing App.jsx callback.
+      // This does not independently authenticate the user.
+      if (typeof onSignUpSuccess === "function") {
+        onSignUpSuccess(data);
+      } else if (typeof onLogin === "function") {
+        // If no success callback is wired, offer navigation to login.
+        setSuccessMessage(
+          "Registration submitted successfully. You can now go to sign in."
+        );
       }
     } catch (err) {
-      setError("Could not connect to the backend server. Make sure FastAPI is running.");
+      if (err instanceof TypeError) {
+        setError(
+          "Could not connect to the backend. Check that FastAPI is running and the API URL is correct."
+        );
+      } else {
+        setError(
+          err.message || "Something went wrong. Please try again."
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -91,6 +136,7 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
           className="signup-brand"
           onClick={onBack}
           aria-label="Return to DocuLens home"
+          disabled={isSubmitting}
         >
           <span className="signup-brand-mark">
             D<span>.</span>
@@ -104,7 +150,11 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
 
         <div className="signup-header-right">
           <span>Already registered?</span>
-          <button type="button" onClick={onLogin}>
+          <button
+            type="button"
+            onClick={onLogin}
+            disabled={isSubmitting}
+          >
             Sign in
           </button>
         </div>
@@ -137,7 +187,9 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
                 <span>01</span>
                 <div>
                   <strong>Organised submissions</strong>
-                  <p>Keep application information and document records together.</p>
+                  <p>
+                    Keep application information and document records together.
+                  </p>
                 </div>
               </div>
 
@@ -145,7 +197,9 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
                 <span>02</span>
                 <div>
                   <strong>Transparent checks</strong>
-                  <p>Identify missing information and items that need attention.</p>
+                  <p>
+                    Identify missing information and items that need attention.
+                  </p>
                 </div>
               </div>
 
@@ -153,7 +207,9 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
                 <span>03</span>
                 <div>
                   <strong>Human-led review</strong>
-                  <p>Support preliminary checks without automating final decisions.</p>
+                  <p>
+                    Support preliminary checks without automating final decisions.
+                  </p>
                 </div>
               </div>
             </div>
@@ -170,9 +226,11 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
           <div className="signup-form-card">
             <div className="signup-form-heading">
               <div className="signup-form-symbol">D.</div>
+
               <div className="signup-form-eyebrow">
                 ACCOUNT REGISTRATION
               </div>
+
               <h2>Create your account</h2>
               <p>
                 Enter your details to request access to DocuLens.
@@ -191,6 +249,7 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
                   value={fullName}
                   onChange={(event) => setFullName(event.target.value)}
                   required
+                  disabled={isSubmitting}
                 />
               </div>
 
@@ -205,6 +264,7 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   required
+                  disabled={isSubmitting}
                 />
               </div>
 
@@ -219,6 +279,7 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
                   value={institution}
                   onChange={(event) => setInstitution(event.target.value)}
                   required
+                  disabled={isSubmitting}
                 />
               </div>
 
@@ -236,13 +297,16 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
                     value="institution"
                     checked={accountType === "institution"}
                     onChange={() => setAccountType("institution")}
+                    disabled={isSubmitting}
                   />
 
                   <span className="signup-role-radio" />
 
                   <span className="signup-role-copy">
                     <strong>Institutional applicant</strong>
-                    <small>Manage your institution's application submissions.</small>
+                    <small>
+                      Manage your institution's application submissions.
+                    </small>
                   </span>
                 </label>
 
@@ -257,16 +321,21 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
                     value="reviewer"
                     checked={accountType === "reviewer"}
                     onChange={() => setAccountType("reviewer")}
+                    disabled={isSubmitting}
                   />
 
                   <span className="signup-role-radio" />
 
                   <span className="signup-role-copy">
                     <strong>Reviewer access request</strong>
-                    <small>Request review access; approval is required.</small>
+                    <small>
+                      Request review access; approval is required.
+                    </small>
                   </span>
 
-                  <span className="signup-role-badge">Approval required</span>
+                  <span className="signup-role-badge">
+                    Approval required
+                  </span>
                 </label>
               </fieldset>
 
@@ -284,12 +353,18 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       required
+                      disabled={isSubmitting}
                     />
 
                     <button
                       type="button"
-                      onClick={() => setShowPassword((current) => !current)}
-                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      onClick={() =>
+                        setShowPassword((current) => !current)
+                      }
+                      aria-label={
+                        showPassword ? "Hide password" : "Show password"
+                      }
+                      disabled={isSubmitting}
                     >
                       {showPassword ? "Hide" : "Show"}
                     </button>
@@ -313,6 +388,7 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
                         setConfirmPassword(event.target.value)
                       }
                       required
+                      disabled={isSubmitting}
                     />
 
                     <button
@@ -321,8 +397,11 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
                         setShowConfirmPassword((current) => !current)
                       }
                       aria-label={
-                        showConfirmPassword ? "Hide password" : "Show password"
+                        showConfirmPassword
+                          ? "Hide password"
+                          : "Show password"
                       }
+                      disabled={isSubmitting}
                     >
                       {showConfirmPassword ? "Hide" : "Show"}
                     </button>
@@ -334,9 +413,14 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
                 <input
                   type="checkbox"
                   checked={agreeToTerms}
-                  onChange={(event) => setAgreeToTerms(event.target.checked)}
+                  onChange={(event) =>
+                    setAgreeToTerms(event.target.checked)
+                  }
+                  disabled={isSubmitting}
                 />
+
                 <span className="signup-consent-box" />
+
                 <span>
                   I understand that account access is subject to
                   verification and role approval, and that institutional
@@ -351,23 +435,38 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
                 </div>
               )}
 
+              {successMessage && (
+                <div
+                  className="signup-success"
+                  role="status"
+                  aria-live="polite"
+                >
+                  {successMessage}
+                </div>
+              )}
+
               <button
                 className="signup-submit-button"
                 type="submit"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? "Please wait..." : "Request account"}
-                <span>→</span>
+                <span aria-hidden="true">→</span>
               </button>
 
               <p className="signup-form-disclaimer">
-                Connected to local FastAPI server (`/api/register`).
+                Connected to the configured FastAPI server at{" "}
+                <code>/api/register</code>.
               </p>
             </form>
 
             <div className="signup-existing-account">
               Already have an account?{" "}
-              <button type="button" onClick={onLogin}>
+              <button
+                type="button"
+                onClick={onLogin}
+                disabled={isSubmitting}
+              >
                 Sign in
               </button>
             </div>
@@ -377,7 +476,7 @@ function SignUpPage({ onBack, onLogin, onSignUpSuccess }) {
 
       <footer className="signup-bottom-footer">
         <span>© DocuLens · Connected Interface</span>
-        <button type="button" onClick={onBack}>
+        <button type="button" onClick={onBack} disabled={isSubmitting}>
           Back to home
         </button>
       </footer>
